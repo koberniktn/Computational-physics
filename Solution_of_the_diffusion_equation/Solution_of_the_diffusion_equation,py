@@ -1,0 +1,155 @@
+import numpy as np
+from matplotlib import pyplot as plt
+import plotly.graph_objects as go
+import math
+import random
+ 
+l = 100  # 0<x<100 в дано записано как h
+Tf = 1000
+D0 = 0.01  # D0*(2 + cos(pi * x / (2h)))
+k = 0.01
+betta_const = 10 ** (-6)
+ 
+# for implicit method
+h_i = 0.1
+tau_i = 1
+ 
+N_i = int(round(Tf / tau_i))
+M_i = int(round(l / h_i))
+ 
+def graphic(x,t,u):
+    fig = go.Figure(go.Surface(
+	    x=x,
+        y=t,
+        z=u))
+    fig.show()
+ 
+def D(h, m):
+    return D0 * (2 + np.cos((np.pi * (m * h)) / (2 * l)))
+ 
+def a(h, m):
+    if m == 0:
+        return D(h, m)
+    else:
+        return 0.5 * (D(h, m) + D(h, m-1))
+ 
+def implicit(h_i, tau_i, N_i, M_i):
+    A = np.zeros(M_i, dtype=float)
+    B = np.zeros(M_i, dtype=float)
+    K = np.zeros(M_i, dtype=float)
+    F = np.zeros(M_i, dtype=float)
+ 
+    u = np.zeros([N_i, M_i], dtype=float)
+ 
+    for m in range(M_i):
+        A[m] = tau_i * a(h_i, m+1) / h_i ** 2
+        B[m] = - (1 + tau_i * (a(h_i, m+1) + a(h_i, m)) / (h_i ** 2))
+        K[m] = tau_i * a(h_i, m) / (h_i ** 2)
+ 
+    for m in range(M_i):  # заполняем нулевой временной слой в соответствие с ну
+        u[0][m] = 3 - 2 * m * h_i / l
+ 
+    for n in range(N_i-1):
+        for m in range(1, M_i - 1):
+            F[m] = - u[n][m] - betta_const * tau_i * u[n][m]
+ 
+        k00 = - 9 * D0 / (2 * h_i) - k #B0
+        k01 = 6 * D0 / h_i             #K0
+        k02 = - 3 * D0 / (2 * h_i)     #Q0
+ 
+        B[0] = k00 - A[1] * k02 / K[1]
+        K[0] = k01 - B[1] * k02 / K[1]
+        F[0] = - F[1] * k02 / K[1]
+ 
+        kn0 = D0 / h_i                #Dh
+        kn1 = - 4 * D0 / h_i          #Ah
+        kn2 = 3 * D0 / h_i + k        #Qh
+ 
+        A[-1] = kn1 - kn0 * B[-2] / A[-2]
+        B[-1] = kn2 - kn0 * K[-2] / A[-2]
+        F[-1] = - kn0 * F[-2] / A[-2]
+ 
+        u[n + 1] = solve(lower=A, diag=B, upper=K, f=F, n=M_i)
+ 
+    return u
+ 
+def solve(lower, diag, upper, f, n):
+    alpha = np.zeros(n + 1)
+    beta = np.zeros(n + 1)
+ 
+    alpha[1] = -upper[0] / diag[0]
+    beta[1] = f[0] / diag[0]
+ 
+    for i in range(0, n):
+        denominator = lower[i] * alpha[i] + diag[i]
+        alpha[i + 1] = -upper[i] / denominator
+        beta[i + 1] = (f[i] - lower[i] * beta[i]) / denominator
+ 
+    u = np.zeros(n)
+    u[n - 1] = beta[n]
+    for i in range(n - 2, -1, -1):
+        u[i] = alpha[i + 1] * u[i + 1] + beta[i + 1]
+ 
+    return u
+ 
+def generate_for_t(H1, H2, t, iters, detector_height, I):
+    c_tmp = I[t][-1]
+    ds = 0.001
+    Ns = 0
+    detector_x = H1 / 2
+    detector_y = H2 / 2
+ 
+    for _ in range(iters):
+        r_x, r_y = random.uniform(0, 1) * H1, random.uniform(0, 1) * H2
+        d = math.sqrt((detector_x-r_x)**2+(detector_y-r_y)**2+(detector_height)**2)
+        Ns += c_tmp * k / (4 * np.pi * d**2) * (H1 * H2 / iters)
+ 
+    return Ns
+ 
+I = implicit(h_i, tau_i, N_i, M_i)
+ 
+NNN = []
+for t in range(1000):
+    NNN.append(generate_for_t(1, 5, t, 10000, 10, I))
+ 
+plt.plot([t for t in range(1000)], NNN)
+plt.xlabel("t, c")
+plt.ylabel("J, моль/мкм²•с")
+plt.show()
+ 
+#plot
+x_i = np.linspace(0, l, M_i)
+t_i = np.linspace(0, Tf, N_i)
+X_i, T_i = np.meshgrid(x_i, t_i)
+graphic(x_i, t_i, I)
+ 
+fig2 = plt.figure(1, figsize=[11, 10])
+fig2.suptitle('Implicit', x=0.45, y=0.98)
+ax5 = fig2.add_subplot(221, projection='3d')
+ax5.plot_surface(T_i, X_i, I, rcount=1, color='blue', alpha=0.3)
+ax5.set_xlabel('t, ч')
+ax5.set_ylabel('h, мкм')
+ax5.set_zlabel('C(x,t)')
+ax5.set_zlim([0, 3])
+ax5.view_init(25, 55)
+ax6 = fig2.add_subplot(222)
+ax6.plot(x_i, I[10], 'k')
+ax6.set_xlabel('t, ч')
+ax6.set_ylabel('C(x,10)')
+ax6.set_ylim([0, 3])
+ax6.grid()
+ax7 = fig2.add_subplot(223)
+ax7.plot(x_i, I[100], 'k')
+ax7.set_xlabel('t, ч')
+ax7.set_ylabel('C(x,100)')
+ax7.set_ylim([0, 3])
+ax7.grid()
+ax8 = fig2.add_subplot(224)
+ax8.plot(x_i, I[999], 'k')
+ax8.set_xlabel('t, ч')
+ax8.set_ylabel('C(x,1000)')
+ax8.set_ylim([0, 3])
+ax8.grid()
+fig2.tight_layout()
+fig2.savefig('result(implicit).png', dpi=750)
+plt.show()
